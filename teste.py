@@ -9,7 +9,7 @@ from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 base_url = "https://www.viajanet.com.br/cars/shop/city/REC/{pickup}/city/REC/{dropoff}"
 data_inicial = datetime(2025, 6, 1)
 tiers = [3, 5]
-dias = 2
+dias = 3
 
 # Setup
 os.makedirs("responses", exist_ok=True)
