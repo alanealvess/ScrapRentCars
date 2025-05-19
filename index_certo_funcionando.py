@@ -2,6 +2,7 @@ import os
 import json
 import time
 import re
+import random
 from datetime import datetime, timedelta
 import pandas as pd
 from fuzzywuzzy import process, fuzz
@@ -10,10 +11,12 @@ import undetected_chromedriver as uc
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 
 # ========= CONFIGURAÇÕES =========
-city = "FOR"  # Abreviação da cidade
-data_inicial = datetime(2025, 5, 16)
-dias = 3
+city = "REC"
+data_inicial = datetime(2026, 1, 9)
+dias = 13
 tiers = [2, 6, 13, 15]
+chamadas = 0  # contador de chamadas
+horarios = ["T18:00", "T19:00", "T20:00", "T21:00", "T22:00", "T23:00"]
 
 # ========= FUNÇÕES AUXILIARES =========
 def normalize(text):
@@ -39,36 +42,60 @@ def get_chapu_response(driver):
             continue
     return None
 
+def iniciar_driver():
+    caps = DesiredCapabilities.CHROME
+    caps["goog:loggingPrefs"] = {"performance": "ALL"}
+    options = uc.ChromeOptions()
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    return uc.Chrome(options=options, desired_capabilities=caps)
+
 # ========= PREPARAÇÃO =========
 df_mapping = pd.read_csv("vehicle_mappings.csv", sep=";")
 df_mapping["modelo_normalizado_temp"] = df_mapping["modelo_consulta"].apply(normalize)
 
-rental_map = pd.read_csv("rental_mappings.csv")  # colunas: codigo,nome_locadora
-category_map = pd.read_csv("category_mappings.csv")  # colunas: codigo,nome_categoria
+rental_map = pd.read_csv("rental_mappings.csv")
+category_map = pd.read_csv("category_mappings.csv")
 
 dfs = []
-
-caps = DesiredCapabilities.CHROME
-caps["goog:loggingPrefs"] = {"performance": "ALL"}
-options = uc.ChromeOptions()
-options.add_argument("--disable-blink-features=AutomationControlled")
-driver = uc.Chrome(options=options, desired_capabilities=caps)
+driver = iniciar_driver()
 
 # ========= LOOP =========
 base_url = "https://www.viajanet.com.br/cars/shop/city/{city}/{pickup}/city/{city}/{dropoff}"
 
 for i in range(dias):
     retirada = data_inicial + timedelta(days=i)
-    for t in tiers:
+
+    random_tiers = tiers[:]
+    random.shuffle(random_tiers)
+
+    for t in random_tiers:
         devolucao = retirada + timedelta(days=t)
-        r_str = retirada.strftime("%Y-%m-%dT18:00")
-        d_str = devolucao.strftime("%Y-%m-%dT18:00")
+
+        horario_escolhido = random.choice(horarios)
+        r_str = retirada.strftime(f"%Y-%m-%d{horario_escolhido}")
+        d_str = devolucao.strftime(f"%Y-%m-%d{horario_escolhido}")
+
         url = base_url.format(city=city, pickup=r_str, dropoff=d_str)
+
+        chamadas += 1
+        if chamadas % 10 == 0:
+            print("🔁 Reinicializando navegador para evitar detecção...")
+            driver.quit()
+            time.sleep(3)
+            driver = iniciar_driver()
 
         print(f"🔎 Acessando: {url}")
         driver.execute_cdp_cmd("Network.enable", {})
         driver.get(url)
-        time.sleep(10)
+
+        # ====== Rolagem realista (nova) ======
+        for _ in range(random.randint(1, 3)):
+            scroll_value = random.randint(100, 800)
+            driver.execute_script(f"window.scrollBy(0, {scroll_value})")
+            time.sleep(random.uniform(0.5, 1.2))
+
+        # ====== Espera variada ======
+        time.sleep(random.uniform(8, 14))
 
         resposta_json = get_chapu_response(driver)
         if not resposta_json:
@@ -93,7 +120,6 @@ for i in range(dias):
             df["codigo_asa"] = ""
             df["letra"] = ""
 
-            # Mapeamento de modelos
             name_to_model = {}
             for name in df["vehicleName"].dropna().unique():
                 nome_normalizado = normalize(name)
@@ -107,17 +133,14 @@ for i in range(dias):
             df = df.merge(df_mapping, on="modelo_consulta", how="left")
             df["vehicleName"] = df["modelo_consulta"].combine_first(df["vehicleName"])
 
-            # Mapeamento de locadoras
             df = df.merge(rental_map, left_on="rentalCompany", right_on="codigo", how="left")
             df["rentalCompany"] = df["nome_locadora"].combine_first(df["rentalCompany"])
             df = df.drop(columns=["codigo", "nome_locadora"], errors="ignore")
 
-            # Mapeamento de categorias
             df = df.merge(category_map, left_on="categoryName", right_on="codigo", how="left")
             df["categoryName"] = df["nome_categoria"].combine_first(df["categoryName"])
             df = df.drop(columns=["codigo", "nome_categoria"], errors="ignore")
 
-            # Datas e tier
             df["retiradaDate"] = retirada.strftime("%Y-%m-%d")
             df["devolucaoDate"] = devolucao.strftime("%Y-%m-%d")
             df["tierRange"] = t
