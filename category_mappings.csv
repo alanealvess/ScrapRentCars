@@ -1,10 +1,11 @@
-codigo,nome_categoria
-big-fullsize,SUV
-compact,Compacto
-economic,Econômico
-intermediate,Intermediário
-standard,Standard
-fullsize,SUV
-pickup,Cargo ou Utilitário
-minivan,Minivan
-big-pickups;Especial
+codigo;nome_categoria
+ou SUV similar;SUV
+ou Premium similar;Premium
+ou Econômico similar;Econômico
+ou Intermediário similar;Intermediário
+ou Standard similar;Standard
+ou Compacto similar;Compacto
+ou Cargo similar;Cargo
+ou Utilitário similar;Utilitário
+ou Minivan similar;Minivan
+ou Especial similar;Especial
