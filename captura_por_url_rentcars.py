@@ -37,7 +37,14 @@ def extrair_dados_da_pagina(driver):
     for card in cards:
         try:
             nome = card.find_element(By.CLASS_NAME, "card-vehicle-title_1x3XzWOV").text.strip()
-            preco = card.find_element(By.CLASS_NAME, "total-amount_1XUQg1Kt").text.strip()
+
+            # Preço diário
+            try:
+                preco_raw = card.find_element(By.CLASS_NAME, "total-daily_1KSoqIQ3").text
+                match = re.search(r'R\$[\s\u00A0]?([\d.,]+)', preco_raw)
+                preco = match.group(1).replace(".", "").replace(",", ".") if match else ""
+            except:
+                preco = ""
 
             # Locadora
             try:
@@ -65,10 +72,19 @@ def extrair_dados_da_pagina(driver):
             except:
                 pass
 
-            dados.append((nome, preco, locadora, gear_type, has_ac, avaliacao))
+            # Categoria
+            try:
+                categoria_raw = card.find_element(By.CLASS_NAME, "card-vehicle-title-complementary_2r1d60_k").text
+                categoria = categoria_raw.replace("ou", "").replace("similar", "").strip().upper()
+            except:
+                categoria = ""
+
+            dados.append((nome, preco, locadora, gear_type, has_ac, avaliacao, categoria))
         except:
             continue
     return dados
+
+
 
 # ========= MAPEAMENTOS =========
 df_mapping = pd.read_csv("vehicle_mappings.csv", sep=";")
@@ -123,11 +139,12 @@ for i in range(dias):
             continue
 
         df = pd.DataFrame(dados, columns=[
-            "vehicleName", "rentalPrice", "rentalCompany", "gearType", "hasAirConditioning", "ratingPercent"
+        "vehicleName", "rentalPrice", "rentalCompany",
+        "gearType", "hasAirConditioning", "ratingPercent", "categoryName"
         ])
-        df["categoryName"] = ""
         df["codigo_asa"] = ""
         df["letra"] = ""
+
 
         # Mapeamento de modelos
         name_to_model = {}
