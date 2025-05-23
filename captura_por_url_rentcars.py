@@ -10,13 +10,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 # ========= CONFIGURAÇÕES =========
-city_name = "Fortaleza"
-# 110 = Fortaleza; 178 = Recife
-city_code = 110
-data_inicial = datetime(2025, 6, 1)
-dias = 15
+city_name = "Recife"
+city_code = 178
+data_inicial = datetime(2026, 3, 1)
+dias = 30
 tiers = [2, 6, 13, 15]
-hora_padrao = 11
+hora_padrao = 16
+
 
 # ========= FUNÇÕES =========
 def normalize(text):
@@ -26,10 +26,12 @@ def normalize(text):
     text = re.sub(r'[^a-zA-Z0-9\s]', '', text)
     return text.lower().strip()
 
+
 def montar_url(city_code, retirada, devolucao):
     ts_retirada = int(retirada.timestamp())
     ts_devolucao = int(devolucao.timestamp())
     return f"https://www.rentcars.com/pt-br/reserva/listar/{city_code}-{ts_retirada}-{city_code}-{ts_devolucao}-0-0-0-0-0-0-0-0"
+
 
 def extrair_dados_da_pagina(driver):
     cards = driver.find_elements(By.CLASS_NAME, "card-vehicle-container_1eavC5yY")
@@ -37,28 +39,21 @@ def extrair_dados_da_pagina(driver):
     for card in cards:
         try:
             nome = card.find_element(By.CLASS_NAME, "card-vehicle-title_1x3XzWOV").text.strip()
-
-            # Preço diário
             try:
                 preco_raw = card.find_element(By.CLASS_NAME, "total-daily_1KSoqIQ3").text
                 match = re.search(r'R\$[\s\u00A0]?([\d.,]+)', preco_raw)
                 preco = match.group(1).replace(".", "").replace(",", ".") if match else ""
             except:
                 preco = ""
-
-            # Locadora
             try:
                 locadora = card.find_element(By.CSS_SELECTOR, ".rental-company-evaluation-img_3FvMRZD5 img").get_attribute("alt")
             except:
                 locadora = "Não informado"
-
-            # Avaliação
             try:
                 avaliacao = card.find_element(By.CLASS_NAME, "evaluation-value_gQkFUU98").text.strip()
             except:
                 avaliacao = ""
 
-            # Gear Type e Ar-condicionado
             gear_type = ""
             has_ac = ""
             try:
@@ -72,7 +67,6 @@ def extrair_dados_da_pagina(driver):
             except:
                 pass
 
-            # Categoria
             try:
                 categoria_raw = card.find_element(By.CLASS_NAME, "card-vehicle-title-complementary_2r1d60_k").text
                 categoria = categoria_raw.replace("ou", "").replace("similar", "").strip().upper()
@@ -85,7 +79,6 @@ def extrair_dados_da_pagina(driver):
     return dados
 
 
-
 # ========= MAPEAMENTOS =========
 df_mapping = pd.read_csv("vehicle_mappings.csv", sep=";")
 df_mapping["modelo_normalizado_temp"] = df_mapping["modelo_consulta"].apply(normalize)
@@ -94,6 +87,7 @@ rental_map = pd.read_csv("rental_mappings.csv")
 category_map = pd.read_csv("category_mappings.csv")
 
 dfs = []
+
 
 # ========= LOOP PRINCIPAL =========
 for i in range(dias):
@@ -106,9 +100,15 @@ for i in range(dias):
         print(f"📡 Coletando dados: {retirada_dt} → {devolucao_dt}")
         url = montar_url(city_code, retirada_dt, devolucao_dt)
 
+        # ============ CONFIGURAÇÃO DA JANELA ================
         options = uc.ChromeOptions()
-        options.add_argument("--window-size=1920,1080")
+        options.add_argument("--window-position=1366,0")  # Tela da direita
         driver = uc.Chrome(options=options)
+
+        driver.set_window_rect(x=1549, y=0, width=1100, height=700)  # Tamanho e posição
+        #driver.minimize_window()  # Minimiza logo após abrir
+        # ====================================================
+
         driver.get(url)
 
         try:
@@ -116,7 +116,6 @@ for i in range(dias):
                 EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'carros encontrados')]"))
             )
 
-            # Scroll dinâmico
             last_height = driver.execute_script("return document.body.scrollHeight")
             for _ in range(15):
                 driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
@@ -139,14 +138,12 @@ for i in range(dias):
             continue
 
         df = pd.DataFrame(dados, columns=[
-        "vehicleName", "rentalPrice", "rentalCompany",
-        "gearType", "hasAirConditioning", "ratingPercent", "categoryName"
+            "vehicleName", "rentalPrice", "rentalCompany",
+            "gearType", "hasAirConditioning", "ratingPercent", "categoryName"
         ])
         df["codigo_asa"] = ""
         df["letra"] = ""
 
-
-        # Mapeamento de modelos
         name_to_model = {}
         for name in df["vehicleName"].dropna().unique():
             nome_normalizado = normalize(name)
@@ -160,12 +157,10 @@ for i in range(dias):
         df = df.merge(df_mapping, on="modelo_consulta", how="left")
         df["vehicleName"] = df["modelo_consulta"].combine_first(df["vehicleName"])
 
-        # Locadora
         df = df.merge(rental_map, left_on="rentalCompany", right_on="codigo", how="left")
         df["rentalCompany"] = df["nome_locadora"].combine_first(df["rentalCompany"])
         df = df.drop(columns=["codigo", "nome_locadora"], errors="ignore")
 
-        # Categoria
         df = df.merge(category_map, left_on="categoryName", right_on="codigo", how="left")
         df["categoryName"] = df["nome_categoria"].combine_first(df["categoryName"])
         df = df.drop(columns=["codigo", "nome_categoria"], errors="ignore")
@@ -185,6 +180,7 @@ for i in range(dias):
         df = df[final_columns]
         dfs.append(df)
         print(f"✅ Registros capturados: {len(df)}")
+
 
 # ========= SALVAR EXCEL =========
 if dfs:
